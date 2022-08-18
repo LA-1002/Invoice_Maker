@@ -3,8 +3,14 @@ from datetime import date
 from docx import Document
 from docx2pdf import convert;
 import os;
-from PyPDF2 import PdfFileMerger
-import shutil;
+from docxcompose.composer import Composer
+import shutil
+
+
+
+def find_csv_filenames():
+    filenames = os.listdir('CSVs/')
+    return [ filename for filename in filenames if filename.endswith('.csv') ]
 
 def GetInvoiceID(num):
     today = date.today();
@@ -20,9 +26,12 @@ def GetInvoiceID(num):
         tNum = '0' + tNum
     today = ('{}-{}'.format(today.year,tMonth,));
     return ('INV-{}-{}'.format(today,tNum));
-def GetCommissionData():
-    comData = csv.reader(open('commission_8-16-2022.csv'),delimiter=',')
+def GetCommissionData(file):
+    print(file)
+    file = open(file,'r');
+    comData = csv.reader(file,delimiter=',')
     comData = sorted(comData, key=operator.itemgetter(2))
+    file.close();
     #GET ALL INFO FROM THE BRANDS AND TURN IT INTO A JSON FILE
     brands = [];
     for d in comData:
@@ -55,12 +64,20 @@ def GetCommissionData():
 
 
 def editWordDocument(invoice,info):
+    #replaces text based on what is set in both the variables and Template document.
     template = Document('Templates/Invoice Template.docx')
-    output = ('Temp/%s.docx'%(str(invoice['invoiceID'])))
+    output = ('Temp/Top-%s.docx'%(str(invoice['invoiceID'])))
     dates = date.today();
     next = int(dates.month) + 1;
-    today = ('{}-{}-{}'.format(dates.day,dates.month,dates.year));
-    nMonth = ('{}-{}-{}'.format(dates.day,str(next),dates.year));
+    tNum = str(dates.month)
+    nNum = str(next);
+    if (len(tNum)==1):
+        tNum = '0'+tNum
+    if (len(nNum) == 1):
+        nNum = '0'+nNum
+    today = ('{}-{}-{}'.format(dates.day,tNum,dates.year));
+    nMonth = ('{}-{}-{}'.format(dates.day,nNum,dates.year));
+    tNum = str(dates.month);
     variables = {
         "COMPANY_NAME": info['Name'],
         "ADDRESS_STREET": info['Address']['Street'],
@@ -72,7 +89,6 @@ def editWordDocument(invoice,info):
         'TOTALPAYMENT': ('£' + str(invoice['Amount'])),
         'IDNUMBER': invoice['invoiceID']
     }
-
     for variable_key, variable_value in variables.items():
         for paragraph in template.paragraphs:
             replacement_text(paragraph, variable_key,variable_value);
@@ -81,7 +97,7 @@ def editWordDocument(invoice,info):
                 for cell in col.cells:
                     for paragraph in cell.paragraphs:
                         replacement_text(paragraph,variable_key,variable_value);
-        template.save(output);
+    template.save(output);
 
 def replacement_text(paragraph, key, value):
     if key in paragraph.text:
@@ -91,8 +107,9 @@ def replacement_text(paragraph, key, value):
                 item.text = item.text.replace(key, value)
 
 
-def addWordTable(invoice,path):
-    doc = Document(path);
+def addWordTable(invoice):
+    #THIS creates a table in a word document
+    doc = Document();
     data = [];
     for o in invoice['Orders']:
         entry = (o['Description'],o['Date'],o['Amount'],)
@@ -108,28 +125,31 @@ def addWordTable(invoice,path):
         row[0].text = des,
         row[1].text = date,
         row[2].text = ('£'+str(comm),)
-    #table.style = ("Colorful List");
+    table.style = ("Colorful List");
     row[0].text = ' '
     row[1].text = 'Total'
     row[2].text = ('£' + str(invoice['Amount']))
+    path = 'Temp/Table-%s.docx'%invoice['invoiceID'];
     doc.save(path);
 
+def mergeWordDocument(files,inv):
+    changed = 'Temp/%s.docx'%inv['invoiceID']
+    result = Document(files[0])
+    composer = Composer(result)
+    doc1 = Document(files[1]);
+    doc2 = Document(files[2]);
 
-def makeDocPDF(inv,word):
-    pdf = ('Temp/%s.pdf'%(str(inv['invoiceID'])))
+    composer.append(doc1);
+    composer.append(doc2);
+
+    composer.save(changed)
+    
+
+def makeDocPDF(word,pdf):
     convert(word,pdf)
-    os.remove(word);
 
 
 
-def mergePDF(org):
-    merger = PdfFileMerger()
-    files = [org,'Templates/Invoice_PayTab.pdf']
-    for f in files:
-        merger.append(f)
-    path = ('Invoices/%s.pdf'%(str(inv['invoiceID'])))
-    merger.write(path);
-    merger.close()
 
 
 
@@ -137,16 +157,18 @@ def mergePDF(org):
 
 
 # WHERE ALL THE STUFF IS RUN
-allInvoices = GetCommissionData();
+files = find_csv_filenames();
+file = 'CSVs/%s'%files[0]
+allInvoices = GetCommissionData(file);
 business = {
-    'Name': "Alidi's",
-    'Address': {
-        'Street': 'Fake Street',
-        'Town': 'Counterfeit Corner',
-        'County': 'Phony District',
-        'Postcode': 'SHAM PRE',
-    }
-    }
+'Name': "Alidi's",
+'Address': {
+    'Street': 'Fake Street',
+    'Town': 'Counterfeit Corner',
+    'County': 'Phony District',
+    'Postcode': 'SHAM PRE',
+}
+}
 for inv in allInvoices:
     try:
         os.mkdir('Temp');
@@ -157,12 +179,15 @@ for inv in allInvoices:
     except:
         None
     editWordDocument(inv,business);
-    path = ('Temp/%s.docx'%(str(inv['invoiceID'])))
-    addWordTable(inv,path);
-    makeDocPDF(inv,path);
-    path = ('Temp/%s.pdf'%(str(inv['invoiceID'])))
-    mergePDF(path)
-    shutil.rmtree('Temp');
-    break
+    addWordTable(inv);
+    top = ('Temp/Top-%s.docx'%(str(inv['invoiceID'])))
+    table = ('Temp/Table-%s.docx'%(str(inv['invoiceID'])))
+    files = [top,table,'Templates/Invoice_PayTab.docx']
+    mergeWordDocument(files,inv)
+    word = 'Temp/%s.docx'%inv['invoiceID']
+    pdf = 'Invoices/%s.pdf'%inv['invoiceID']
+    makeDocPDF(word,pdf)
+shutil.rmtree('Temp');
+    
 
 print('DONE');

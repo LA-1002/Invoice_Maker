@@ -4,7 +4,13 @@ from docx import Document
 from docx2pdf import convert;
 import os;
 from docxcompose.composer import Composer
-import shutil
+import shutil;
+
+
+def getMonthText():
+    today = date.today();
+    months = ['January','February','March','April','May','June','July','August','September','October','November','December']
+    return months[today.month-1]
 
 
 
@@ -71,12 +77,13 @@ def editWordDocument(invoice,info):
     next = int(dates.month) + 1;
     tNum = str(dates.month)
     nNum = str(next);
+    tYear = str(dates.year).replace('20','');
     if (len(tNum)==1):
         tNum = '0'+tNum
     if (len(nNum) == 1):
         nNum = '0'+nNum
-    today = ('{}-{}-{}'.format(dates.day,tNum,dates.year));
-    nMonth = ('{}-{}-{}'.format(dates.day,nNum,dates.year));
+    today = ('{}-{}-{}'.format(dates.day,tNum,tYear));
+    nMonth = ('{}-{}-{}'.format(dates.day,nNum,tYear));
     tNum = str(dates.month);
     variables = {
         "COMPANY_NAME": info['Name'],
@@ -125,23 +132,24 @@ def addWordTable(invoice):
         row[0].text = des,
         row[1].text = date,
         row[2].text = ('£'+str(comm),)
-    table.style = ("Colorful List");
+    table.style = 'Medium Shading 1 Accent 6'
+    #table.style = 'Colorful List'
     row[0].text = ' '
     row[1].text = 'Total'
     row[2].text = ('£' + str(invoice['Amount']))
     path = 'Temp/Table-%s.docx'%invoice['invoiceID'];
+    
     doc.save(path);
 
 def mergeWordDocument(files,inv):
-    changed = 'Temp/%s.docx'%inv['invoiceID']
     result = Document(files[0])
     composer = Composer(result)
+    
     doc1 = Document(files[1]);
     doc2 = Document(files[2]);
-
     composer.append(doc1);
     composer.append(doc2);
-
+    changed = 'Temp/%s.docx'%inv['invoiceID']
     composer.save(changed)
     
 
@@ -170,12 +178,17 @@ business = {
 }
 }
 for inv in allInvoices:
+    month = getMonthText();
     try:
         os.mkdir('Temp');
     except:
         None
     try:
         os.mkdir('Invoices');
+    except:
+        None
+    try:
+        os.mkdir('Invoices/%s'%month);
     except:
         None
     editWordDocument(inv,business);
@@ -185,9 +198,8 @@ for inv in allInvoices:
     files = [top,table,'Templates/Invoice_PayTab.docx']
     mergeWordDocument(files,inv)
     word = 'Temp/%s.docx'%inv['invoiceID']
-    pdf = 'Invoices/%s.pdf'%inv['invoiceID']
+    pdf = ('Invoices/%s/%s.pdf'%(month,inv['invoiceID']))
     makeDocPDF(word,pdf)
 shutil.rmtree('Temp');
-    
 
 print('DONE');
